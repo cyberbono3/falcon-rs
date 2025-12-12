@@ -1,14 +1,8 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+//! Falcon implementation scaffolding.
+//!
+//! For now, we expose parameter definitions; cryptographic primitives will
+//! follow in subsequent modules.
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+pub mod params;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+pub use params::{ParameterSet, Parameters, FALCON_Q, LOGQ};
