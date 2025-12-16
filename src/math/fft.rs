@@ -183,14 +183,15 @@ pub fn ifft(values: &mut [Complex]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use num_traits::{One, Zero};
 
     #[test]
     fn roundtrip_fft() {
         let mut data = [
-            Complex::new(1.0, 0.0),
+            Complex::one(),
             Complex::new(2.0, -1.0),
             Complex::new(3.0, 1.0),
-            Complex::new(0.0, 0.0),
+            Complex::zero(),
         ];
         let original = data;
         fft(&mut data);
@@ -199,5 +200,27 @@ mod tests {
             assert!((a.re - b.re).abs() < 1e-9);
             assert!((a.im - b.im).abs() < 1e-9);
         }
+    }
+
+    #[test]
+    fn fft_on_constant_signal() {
+        let mut data = [Complex::one(); 8];
+        fft(&mut data);
+        assert!((data[0].re - 8.0).abs() < 1e-9);
+        assert!(data.iter().skip(1).all(Complex::is_zero));
+    }
+
+    #[test]
+    fn ifft_scales_inverse() {
+        let mut data = [
+            Complex::new(0.0, 0.0),
+            Complex::new(1.0, 0.0),
+            Complex::new(0.0, 0.0),
+            Complex::new(0.0, 0.0),
+        ];
+        fft(&mut data);
+        ifft(&mut data);
+        assert!((data[1].re - 1.0).abs() < 1e-9);
+        assert!(data[1].im.abs() < 1e-9);
     }
 }
