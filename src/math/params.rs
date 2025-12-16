@@ -126,4 +126,22 @@ mod tests {
         );
         assert_eq!(ParameterSet::new_falcon(256), None);
     }
+
+    #[test]
+    fn all_returns_every_supported_set_once() {
+        let all = ParameterSet::all();
+        assert_eq!(all.len(), 2);
+        assert!(all.contains(&ParameterSet::Falcon512));
+        assert!(all.contains(&ParameterSet::Falcon1024));
+    }
+
+    #[test]
+    fn table_entries_match_enum_order() {
+        // Ensure the table order stays aligned with the enum discriminants.
+        for (idx, set) in ParameterSet::all().iter().enumerate() {
+            let params = set.params();
+            assert_eq!(params, PARAMETERS[idx]);
+            assert!(params.is_supported());
+        }
+    }
 }
