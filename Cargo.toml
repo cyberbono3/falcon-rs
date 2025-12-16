@@ -3,7 +3,13 @@ name = "falcon-rs"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = []
+ark-compat = []
+
 [dependencies]
+ark-ff = { version = "0.4", default-features = false, features = ["std"] }
+ark-poly = { version = "0.4", default-features = false, features = ["std"] }
 
 
 [dev-dependencies.cargo-husky]
