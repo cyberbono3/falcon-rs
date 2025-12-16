@@ -1,5 +1,3 @@
-#[cfg(feature = "ark-compat")]
-pub mod ark;
 pub mod fft;
 pub mod field;
 pub mod mat;
@@ -9,8 +7,6 @@ pub mod poly;
 pub mod sampling;
 pub(crate) mod util;
 
-#[cfg(feature = "ark-compat")]
-pub use ark::ArkModQ;
 pub use ark_ff::PrimeField;
 pub use fft::Complex;
 pub use field::ModQ;
