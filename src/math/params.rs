@@ -13,6 +13,14 @@ pub const MIN_LOGN: u8 = 9; // 2^9 = 512
 /// Maximum degree supported by the scheme (`n = 2^logn`).
 pub const MAX_LOGN: u8 = 10; // 2^10 = 1024
 
+/// Supported Falcon parameter sets.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ParameterSet {
+    Falcon512,
+    Falcon1024,
+}
+
 /// High-level description of a Falcon parameter set.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Parameters {
@@ -39,13 +47,6 @@ impl Parameters {
     }
 }
 
-/// Supported Falcon parameter sets.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ParameterSet {
-    Falcon512,
-    Falcon1024,
-}
-
 impl ParameterSet {
     /// Construct a parameter set from a Falcon degree (512 or 1024).
     pub const fn new_falcon(degree: usize) -> Option<Self> {
@@ -56,6 +57,11 @@ impl ParameterSet {
         }
     }
 
+    /// Return all supported parameter sets.
+    pub const fn all() -> &'static [ParameterSet] {
+        &[ParameterSet::Falcon512, ParameterSet::Falcon1024]
+    }
+
     /// Return the strongly typed parameters for this set.
     pub const fn params(self) -> Parameters {
         match self {
@@ -64,7 +70,6 @@ impl ParameterSet {
                 degree: 512,
                 log_degree: 9,
                 modulus: FALCON_Q,
-                // Values from the official spec / reference implementation.
                 max_sig_len: 690,
                 pk_len: 897,
                 sk_len: 1_281,
@@ -113,5 +118,23 @@ mod tests {
             Some(ParameterSet::Falcon1024)
         );
         assert_eq!(ParameterSet::new_falcon(256), None);
+    }
+
+    #[test]
+    fn all_returns_every_supported_set_once() {
+        let all = ParameterSet::all();
+        assert_eq!(all.len(), 2);
+        assert!(all.contains(&ParameterSet::Falcon512));
+        assert!(all.contains(&ParameterSet::Falcon1024));
+    }
+
+    #[test]
+    fn table_entries_match_enum_order() {
+        // Ensure params match the expected enum discriminants.
+        assert_eq!(
+            ParameterSet::Falcon512.params().degree,
+            ParameterSet::Falcon512 as usize * 512 + 512
+        );
+        assert_eq!(ParameterSet::Falcon1024.params().degree, 1024);
     }
 }
