@@ -58,6 +58,7 @@ mod tests {
     use super::*;
     use crate::fe;
     use crate::math::fft::Complex;
+    use num_traits::One;
 
     #[test]
     fn ldl_modq() {
@@ -79,9 +80,10 @@ mod tests {
             Complex::new(2.0, 0.0),
             Complex::new(1.0, -1.0),
         );
-        let out =
-            m.mul_vector([Complex::new(1.0, 0.0), Complex::new(0.0, 1.0)]);
+        let out = m.mul_vector([Complex::one(), Complex::new(0.0, 1.0)]);
         // (1+i)*1 + i*i = (1+i) + (-1) = i
         assert_eq!(out[0], Complex::new(0.0, 1.0));
+        // Second component sanity: (2)*1 + (1 - i)*i = 2 + i - i^2 = 3 + i
+        assert_eq!(out[1], Complex::new(3.0, 1.0));
     }
 }
