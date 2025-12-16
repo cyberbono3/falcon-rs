@@ -8,6 +8,8 @@ use core::ops::{
     Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign,
 };
 
+use num_traits::{One, Zero};
+
 use super::util;
 
 /// Lightweight complex number type (to avoid pulling external dependencies).
@@ -18,9 +20,6 @@ pub struct Complex {
 }
 
 impl Complex {
-    pub const ZERO: Self = Self { re: 0.0, im: 0.0 };
-    pub const ONE: Self = Self { re: 1.0, im: 0.0 };
-
     pub const fn new(re: f64, im: f64) -> Self {
         Self { re, im }
     }
@@ -35,6 +34,26 @@ impl Complex {
 
     pub fn exp_i(theta: f64) -> Self {
         Self::new(theta.cos(), theta.sin())
+    }
+}
+
+impl Zero for Complex {
+    fn zero() -> Self {
+        Complex::new(0.0, 0.0)
+    }
+
+    fn is_zero(&self) -> bool {
+        self.re == 0.0 && self.im == 0.0
+    }
+}
+
+impl One for Complex {
+    fn one() -> Self {
+        Complex::new(1.0, 0.0)
+    }
+
+    fn is_one(&self) -> bool {
+        self.re == 1.0 && self.im == 0.0
     }
 }
 
@@ -131,7 +150,7 @@ fn transform(values: &mut [Complex], invert: bool) {
         let angle = 2.0 * PI / (len as f64) * if invert { -1.0 } else { 1.0 };
         let wlen = Complex::exp_i(angle);
         for chunk in values.chunks_mut(len) {
-            let mut w = Complex::ONE;
+            let mut w = Complex::one();
             for i in 0..len / 2 {
                 let u = chunk[i];
                 let v = chunk[i + len / 2] * w;
