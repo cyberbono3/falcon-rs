@@ -223,4 +223,28 @@ mod tests {
         assert!((data[1].re - 1.0).abs() < 1e-9);
         assert!(data[1].im.abs() < 1e-9);
     }
+
+    #[test]
+    #[should_panic]
+    fn fft_rejects_non_power_of_two() {
+        let mut data = [Complex::one(), Complex::zero(), Complex::zero()];
+        fft(&mut data);
+    }
+
+    #[test]
+    fn fft_handles_pure_imaginary() {
+        let mut data = [
+            Complex::new(0.0, 1.0),
+            Complex::new(0.0, -1.0),
+            Complex::zero(),
+            Complex::zero(),
+        ];
+        let original = data;
+        fft(&mut data);
+        ifft(&mut data);
+        for (a, b) in data.iter().zip(original.iter()) {
+            assert!((a.re - b.re).abs() < 1e-9);
+            assert!((a.im - b.im).abs() < 1e-9);
+        }
+    }
 }
