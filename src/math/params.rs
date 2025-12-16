@@ -13,6 +13,14 @@ pub const MIN_LOGN: u8 = 9; // 2^9 = 512
 /// Maximum degree supported by the scheme (`n = 2^logn`).
 pub const MAX_LOGN: u8 = 10; // 2^10 = 1024
 
+/// Supported Falcon parameter sets.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ParameterSet {
+    Falcon512,
+    Falcon1024,
+}
+
 /// High-level description of a Falcon parameter set.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Parameters {
@@ -39,12 +47,27 @@ impl Parameters {
     }
 }
 
-/// Supported Falcon parameter sets.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ParameterSet {
-    Falcon512,
-    Falcon1024,
-}
+const PARAMETERS: [Parameters; 2] = [
+    Parameters {
+        name: "Falcon-512",
+        degree: 512,
+        log_degree: 9,
+        modulus: FALCON_Q,
+        // Values from the official spec / reference implementation.
+        max_sig_len: 690,
+        pk_len: 897,
+        sk_len: 1_281,
+    },
+    Parameters {
+        name: "Falcon-1024",
+        degree: 1024,
+        log_degree: 10,
+        modulus: FALCON_Q,
+        max_sig_len: 1_330,
+        pk_len: 1_793,
+        sk_len: 2_305,
+    },
+];
 
 impl ParameterSet {
     /// Construct a parameter set from a Falcon degree (512 or 1024).
@@ -56,29 +79,18 @@ impl ParameterSet {
         }
     }
 
+    /// Return all supported parameter sets.
+    pub const fn all() -> &'static [ParameterSet] {
+        &[ParameterSet::Falcon512, ParameterSet::Falcon1024]
+    }
+
+    const fn index(self) -> usize {
+        self as usize
+    }
+
     /// Return the strongly typed parameters for this set.
     pub const fn params(self) -> Parameters {
-        match self {
-            ParameterSet::Falcon512 => Parameters {
-                name: "Falcon-512",
-                degree: 512,
-                log_degree: 9,
-                modulus: FALCON_Q,
-                // Values from the official spec / reference implementation.
-                max_sig_len: 690,
-                pk_len: 897,
-                sk_len: 1_281,
-            },
-            ParameterSet::Falcon1024 => Parameters {
-                name: "Falcon-1024",
-                degree: 1024,
-                log_degree: 10,
-                modulus: FALCON_Q,
-                max_sig_len: 1_330,
-                pk_len: 1_793,
-                sk_len: 2_305,
-            },
-        }
+        PARAMETERS[self.index()]
     }
 }
 
