@@ -15,6 +15,29 @@ use super::fft::Complex;
 use super::field::{ModQ, ModQExt};
 use super::ntt;
 
+/// Macro for convenient polynomial creation.
+///
+/// Examples:
+/// - `poly!()` -> zero polynomial
+/// - `poly!(1, 2, 3)` -> coefficients `[1, 2, 3]`
+/// - `poly!([1, 2, 3])` -> from slice/array
+/// - `poly!(7; 4)` -> four coefficients all set to `7`
+#[macro_export]
+macro_rules! poly {
+    () => {
+        $crate::math::poly::Poly::new(Vec::new())
+    };
+    ($arr:expr) => {
+        $crate::math::poly::Poly::from($arr)
+    };
+    ($val:expr; $count:expr) => {
+        $crate::math::poly::Poly::from(vec![$val; $count])
+    };
+    ($($coeff:expr),+ $(,)?) => {
+        $crate::math::poly::Poly::from(vec![$($coeff),+])
+    };
+}
+
 /// A univariate polynomial with coefficients in a finite field.
 #[derive(Clone, PartialEq, Eq)]
 pub struct Poly<T: PrimeField> {
@@ -193,7 +216,7 @@ impl Poly<ModQ> {
         let lhs = self.to_dense();
         let rhs_dense = rhs.to_dense();
         let res = &lhs * &rhs_dense;
-        Poly::new(res.coeffs)
+        poly!(res.coeffs)
     }
 }
 
@@ -201,11 +224,12 @@ impl Poly<ModQ> {
 mod tests {
     use super::*;
     use crate::fe;
+    use crate::poly;
 
     #[test]
     fn add_and_subtract() {
-        let mut a: Poly<ModQ> = Poly::from([fe!(1), fe!(2), fe!(3)]);
-        let b: Poly<ModQ> = Poly::from([fe!(5), fe!(6)]);
+        let mut a: Poly<ModQ> = poly!(fe!(1), fe!(2), fe!(3));
+        let b: Poly<ModQ> = poly!(fe!(5), fe!(6));
         a.add_assign_poly(&b);
         assert_eq!(a.coeffs(), &[fe!(6), fe!(8), fe!(3)]);
         a.sub_assign_poly(&b);
@@ -214,14 +238,14 @@ mod tests {
 
     #[test]
     fn evaluate_horner() {
-        let p: Poly<ModQ> = Poly::from([fe!(3), fe!(0), fe!(2)]); // 2x^2 + 3
+        let p: Poly<ModQ> = poly!(fe!(3), fe!(0), fe!(2)); // 2x^2 + 3
         assert_eq!(p.evaluate(fe!(2)).value(), fe!(11).value());
     }
 
     #[test]
     fn ntt_matches_schoolbook() {
-        let p: Poly<ModQ> = Poly::from([fe!(1), fe!(2), fe!(3)]);
-        let q: Poly<ModQ> = Poly::from([fe!(4), fe!(5)]);
+        let p: Poly<ModQ> = poly!(fe!(1), fe!(2), fe!(3));
+        let q: Poly<ModQ> = poly!(fe!(4), fe!(5));
         let prod_ntt = p.ntt_product(&q);
         let prod_naive = p.schoolbook_product(&q);
         assert_eq!(prod_ntt, prod_naive);

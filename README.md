@@ -18,10 +18,14 @@ Higher-level Falcon keygen/sign/verify routines can build on these blocks while 
 ```rust
 use falcon_rs::{fe, ModQ, Poly};
 
-let a: Poly<ModQ> = Poly::from([fe!(1), fe!(2)]);
-let b: Poly<ModQ> = Poly::from([fe!(3), fe!(4)]);
+let a: Poly<ModQ> = poly!(fe!(1), fe!(2));
+let b: Poly<ModQ> = poly!(fe!(3), fe!(4));
 let c = a.ntt_product(&b); // convolution via NTT
 assert_eq!(c.coeffs(), &[fe!(3), fe!(10), fe!(8)]);
+
+// Using the helper macro for convenience
+let p: Poly<ModQ> = poly!(1, 2, 3);
+assert_eq!(p.coeffs(), &[fe!(1), fe!(2), fe!(3)]);
 ```
 
 ## Notes
