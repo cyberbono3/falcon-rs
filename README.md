@@ -32,4 +32,3 @@ assert_eq!(p.coeffs(), &[fe!(1), fe!(2), fe!(3)]);
 
 - The sampling helpers are meant for testing and prototyping, not for production randomness or constant-time guarantees.
 - Module boundaries intentionally mirror `falcon.py`, making it easier to compare against the reference codebase.
-- Optional `ark-compat` feature exposes an Arkworks-native `ArkModQ` type with conversions to/from `ModQ` for reuse inside Arkworks ecosystems.
