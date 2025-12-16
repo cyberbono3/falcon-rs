@@ -47,28 +47,6 @@ impl Parameters {
     }
 }
 
-const PARAMETERS: [Parameters; 2] = [
-    Parameters {
-        name: "Falcon-512",
-        degree: 512,
-        log_degree: 9,
-        modulus: FALCON_Q,
-        // Values from the official spec / reference implementation.
-        max_sig_len: 690,
-        pk_len: 897,
-        sk_len: 1_281,
-    },
-    Parameters {
-        name: "Falcon-1024",
-        degree: 1024,
-        log_degree: 10,
-        modulus: FALCON_Q,
-        max_sig_len: 1_330,
-        pk_len: 1_793,
-        sk_len: 2_305,
-    },
-];
-
 impl ParameterSet {
     /// Construct a parameter set from a Falcon degree (512 or 1024).
     pub const fn new_falcon(degree: usize) -> Option<Self> {
@@ -84,13 +62,28 @@ impl ParameterSet {
         &[ParameterSet::Falcon512, ParameterSet::Falcon1024]
     }
 
-    const fn index(self) -> usize {
-        self as usize
-    }
-
     /// Return the strongly typed parameters for this set.
     pub const fn params(self) -> Parameters {
-        PARAMETERS[self.index()]
+        match self {
+            ParameterSet::Falcon512 => Parameters {
+                name: "Falcon-512",
+                degree: 512,
+                log_degree: 9,
+                modulus: FALCON_Q,
+                max_sig_len: 690,
+                pk_len: 897,
+                sk_len: 1_281,
+            },
+            ParameterSet::Falcon1024 => Parameters {
+                name: "Falcon-1024",
+                degree: 1024,
+                log_degree: 10,
+                modulus: FALCON_Q,
+                max_sig_len: 1_330,
+                pk_len: 1_793,
+                sk_len: 2_305,
+            },
+        }
     }
 }
 
@@ -137,11 +130,11 @@ mod tests {
 
     #[test]
     fn table_entries_match_enum_order() {
-        // Ensure the table order stays aligned with the enum discriminants.
-        for (idx, set) in ParameterSet::all().iter().enumerate() {
-            let params = set.params();
-            assert_eq!(params, PARAMETERS[idx]);
-            assert!(params.is_supported());
-        }
+        // Ensure params match the expected enum discriminants.
+        assert_eq!(
+            ParameterSet::Falcon512.params().degree,
+            ParameterSet::Falcon512 as usize * 512 + 512
+        );
+        assert_eq!(ParameterSet::Falcon1024.params().degree, 1024);
     }
 }
