@@ -32,3 +32,4 @@ assert_eq!(p.coeffs(), &[fe!(1), fe!(2), fe!(3)]);
 
 - The sampling helpers are meant for testing and prototyping, not for production randomness or constant-time guarantees.
 - Module boundaries intentionally mirror `falcon.py`, making it easier to compare against the reference codebase.
+- Enable the `rand` feature to use a `rand_core`-backed RNG adapter (`RandCoreSource`); otherwise a deterministic xorshift RNG is provided for tests/examples.
