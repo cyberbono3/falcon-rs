@@ -49,14 +49,6 @@ impl<R: rand_core::RngCore> RandomSource for RandCoreSource<R> {
     }
 }
 
-#[cfg(feature = "rand")]
-impl RandCoreSource<rand_core::OsRng> {
-    /// Construct a randomness source backed by the operating system RNG.
-    pub fn os() -> Self {
-        Self(rand_core::OsRng)
-    }
-}
-
 #[inline]
 fn uniform01<R: RandomSource>(rng: &mut R) -> f64 {
     // Take the top 53 bits to fill an f64 mantissa.
