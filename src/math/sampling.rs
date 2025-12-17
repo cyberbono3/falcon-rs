@@ -5,7 +5,9 @@
 
 use core::f64::consts::PI;
 
-/// Minimal RNG abstraction so we don't depend on an external crate.
+/// Minimal RNG abstraction; when the `rand` feature is enabled, a `rand_core`
+/// adapter is provided, otherwise a deterministic xorshift is available for
+/// tests and examples.
 pub trait RandomSource {
     fn next_u64(&mut self) -> u64;
 }
@@ -32,6 +34,18 @@ impl RandomSource for XorShift64 {
         x ^= x >> 27;
         self.state = x;
         x.wrapping_mul(0x2545F4914F6CDD1D)
+    }
+}
+
+/// Adapter over `rand_core` RNGs when the `rand` feature is enabled.
+#[cfg(feature = "rand")]
+#[derive(Debug)]
+pub struct RandCoreSource<R: rand_core::RngCore>(pub R);
+
+#[cfg(feature = "rand")]
+impl<R: rand_core::RngCore> RandomSource for RandCoreSource<R> {
+    fn next_u64(&mut self) -> u64 {
+        self.0.next_u64()
     }
 }
 
@@ -89,5 +103,32 @@ mod tests {
         }
         let mean = acc / samples as f64;
         assert!(mean.abs() < 0.3, "mean drifted too far: {mean}");
+    }
+
+    #[test]
+    fn gaussian_with_offset() {
+        let mut rng = XorShift64::new(999);
+        let mut acc = 0.0;
+        let samples = 2000;
+        for _ in 0..samples {
+            acc += discrete_gaussian(&mut rng, 1.5, 5.0) as f64;
+        }
+        let mean = acc / samples as f64;
+        assert!((mean - 5.0).abs() < 0.3, "mean drifted too far: {mean}");
+    }
+
+    #[test]
+    fn bernoulli_frequency_matches_probability() {
+        let mut rng = XorShift64::new(2024);
+        let p = 0.3;
+        let trials = 5000;
+        let mut successes = 0;
+        for _ in 0..trials {
+            if bernoulli(&mut rng, p) {
+                successes += 1;
+            }
+        }
+        let freq = successes as f64 / trials as f64;
+        assert!((freq - p).abs() < 0.03, "frequency {freq} deviates too far");
     }
 }
