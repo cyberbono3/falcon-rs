@@ -177,14 +177,9 @@ fn derive_seed(seed: &[u8]) -> Result<u64, KeygenError> {
 }
 
 fn params_for_logn(logn: u8) -> Result<Parameters, KeygenError> {
-    if !(MIN_LOGN..=MAX_LOGN).contains(&logn) {
-        return Err(KeygenError::UnsupportedLogN(logn));
-    }
-
-    let degree = 1usize << logn as usize;
-    let set = ParameterSet::new_falcon(degree)
-        .ok_or(KeygenError::UnsupportedLogN(logn))?;
-    Ok(set.params())
+    ParameterSet::from_logn(logn)
+        .map(|set| set.params())
+        .ok_or(KeygenError::UnsupportedLogN(logn))
 }
 
 fn generate_keypair<R: RandomSource>(

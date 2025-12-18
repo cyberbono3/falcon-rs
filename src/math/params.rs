@@ -57,6 +57,15 @@ impl ParameterSet {
         }
     }
 
+    /// Construct a parameter set from a Falcon `logn` (9 or 10).
+    pub const fn from_logn(logn: u8) -> Option<Self> {
+        match logn {
+            9 => Some(ParameterSet::Falcon512),
+            10 => Some(ParameterSet::Falcon1024),
+            _ => None,
+        }
+    }
+
     /// Return all supported parameter sets.
     pub const fn all() -> &'static [ParameterSet] {
         &[ParameterSet::Falcon512, ParameterSet::Falcon1024]
