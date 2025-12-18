@@ -83,6 +83,17 @@ impl Signature {
     }
 }
 
+#[cfg(test)]
+impl Signature {
+    pub(crate) fn new(
+        nonce: [u8; NONCE_LEN],
+        s2: Vec<i16>,
+        params: Parameters,
+    ) -> Self {
+        Self { nonce, s2, params }
+    }
+}
+
 /// Hash-to-point strategy.
 pub trait HashToPoint {
     fn hash_to_point(
