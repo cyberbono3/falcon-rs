@@ -1,11 +1,43 @@
 use super::keygen::{Keypair, PublicKey};
-use super::sign::{Signature, sign_with_rng};
+use super::sign::{
+    HashToPoint, Signature, XorHashToPoint, hash_to_point, sign_with_rng,
+};
 use super::verify::{VerifyConfig, VerifyError, verify, verify_with_config};
 use crate::math::field::modq_from_i64;
 use crate::math::params::FALCON_Q;
 use crate::math::params::ParameterSet;
-use crate::math::sampling::XorShift64;
+use crate::math::sampling::{RandomSource, XorShift64};
 use crate::math::{ModQ, Poly};
+
+fn random_bytes(rng: &mut XorShift64, len: usize) -> Vec<u8> {
+    let mut out = vec![0u8; len];
+    let mut i = 0usize;
+    while i < len {
+        let w = rng.next_u64().to_le_bytes();
+        let take = (len - i).min(w.len());
+        out[i..i + take].copy_from_slice(&w[..take]);
+        i += take;
+    }
+    out
+}
+
+fn random_nonce(rng: &mut XorShift64) -> [u8; super::sign::NONCE_LEN] {
+    let mut out = [0u8; super::sign::NONCE_LEN];
+    let mut i = 0usize;
+    while i < out.len() {
+        let w = rng.next_u64().to_le_bytes();
+        let take = (out.len() - i).min(w.len());
+        out[i..i + take].copy_from_slice(&w[..take]);
+        i += take;
+    }
+    out
+}
+
+fn random_s2(rng: &mut XorShift64, len: usize) -> Vec<i16> {
+    (0..len)
+        .map(|_| (rng.next_u64() as i64 % 512 - 256) as i16)
+        .collect()
+}
 
 fn end_to_end(degree: usize) {
     let logn = ParameterSet::new_falcon(degree)
@@ -126,4 +158,112 @@ fn verify_rejects_oversized_signature_under_default_bound_falcon512() {
         verify(kp.public(), message, &oversized),
         Err(VerifyError::NormTooLarge)
     ));
+}
+
+#[test]
+fn prop_hash_to_point_invariants_falcon512_and_falcon1024() {
+    let mut rng = XorShift64::new(0xC0FFEE);
+    for &degree in &[512usize, 1024usize] {
+        let params = ParameterSet::new_falcon(degree).unwrap().params();
+        let cases = if degree == 512 { 20 } else { 10 };
+        for _ in 0..cases {
+            let nonce = random_nonce(&mut rng);
+            let msg_len = (rng.next_u64() % 200) as usize;
+            let msg = random_bytes(&mut rng, msg_len);
+
+            let c1 = hash_to_point(params, &nonce, &msg);
+            let c2 = hash_to_point(params, &nonce, &msg);
+            assert_eq!(c1, c2);
+            assert_eq!(c1.len(), degree);
+            assert!(c1.iter().all(|&x| x < FALCON_Q as u16));
+
+            let h1 = XorHashToPoint::new(1).hash_to_point(params, &nonce, &msg);
+            let h2 = XorHashToPoint::new(2).hash_to_point(params, &nonce, &msg);
+            assert_ne!(h1, h2);
+        }
+    }
+}
+
+#[test]
+fn prop_sign_verify_roundtrip_permissive_bound_falcon512_and_falcon1024() {
+    for &degree in &[512usize, 1024usize] {
+        let logn = ParameterSet::new_falcon(degree)
+            .unwrap()
+            .params()
+            .log_degree;
+        let kp = Keypair::from_seed(logn, b"prop-key").unwrap();
+        let cases = if degree == 512 { 8 } else { 3 };
+
+        for i in 0..cases {
+            let mut rng = XorShift64::new(10_000 + i as u64);
+            let msg = format!("property-message-{degree}-{i}").into_bytes();
+            let sig = sign_with_rng(kp.secret(), &msg, &mut rng).unwrap();
+            verify_with_config(
+                kp.public(),
+                &msg,
+                &sig,
+                VerifyConfig {
+                    l2_bound: i128::MAX,
+                },
+            )
+            .unwrap();
+        }
+    }
+}
+
+#[test]
+fn prop_verify_rejects_invalid_s2_length() {
+    let mut rng = XorShift64::new(0xBADC0DE);
+    for &degree in &[512usize, 1024usize] {
+        let logn = ParameterSet::new_falcon(degree)
+            .unwrap()
+            .params()
+            .log_degree;
+        let kp = Keypair::from_seed(logn, b"prop-key").unwrap();
+        let params = kp.public().params();
+
+        let cases = if degree == 512 { 8 } else { 3 };
+        for _ in 0..cases {
+            let nonce = random_nonce(&mut rng);
+            let msg = random_bytes(&mut rng, 32);
+
+            let mut bad_len = (rng.next_u64() as usize) % (degree + 10);
+            if bad_len == degree {
+                bad_len = degree - 1;
+            }
+
+            let sig =
+                Signature::new(nonce, random_s2(&mut rng, bad_len), params);
+            assert!(matches!(
+                verify(kp.public(), &msg, &sig),
+                Err(VerifyError::InvalidS2Length { .. })
+            ));
+        }
+    }
+}
+
+#[test]
+fn prop_verify_rejects_param_mismatch() {
+    let mut rng = XorShift64::new(0xFACEFEED);
+    for &(degree, other) in &[(512usize, 1024usize), (1024usize, 512usize)] {
+        let logn = ParameterSet::new_falcon(degree)
+            .unwrap()
+            .params()
+            .log_degree;
+        let kp = Keypair::from_seed(logn, b"prop-key").unwrap();
+        let good_params = kp.public().params();
+        let bad_params = ParameterSet::new_falcon(other).unwrap().params();
+
+        let nonce = random_nonce(&mut rng);
+        let msg = random_bytes(&mut rng, 48);
+        let sig = Signature::new(
+            nonce,
+            random_s2(&mut rng, good_params.degree),
+            bad_params,
+        );
+        assert!(matches!(
+            verify(kp.public(), &msg, &sig),
+            Err(VerifyError::ParameterMismatch)
+        ));
+    }
 }
