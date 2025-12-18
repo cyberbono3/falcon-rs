@@ -17,12 +17,17 @@ use crate::math::params::FALCON_Q;
 use crate::math::sampling::{RandomSource, discrete_gaussian};
 
 pub const NONCE_LEN: usize = 40;
+const DEFAULT_HASH_DOMAIN: u64 = 0xF4_6A_C9_12_3B_77_E1_19;
+const MIN_VARIANCE: f64 = 1e-12;
+const MIN_GRAM_BIAS: f64 = 1e-9;
 
 /// Errors that can occur during signing.
 #[derive(thiserror::Error, Debug, PartialEq, Eq)]
 pub enum SignError {
     #[error("secret key parameters unsupported (logn = {0})")]
     UnsupportedLogN(u8),
+    #[error("rejection sampling failed after {0} attempts")]
+    RejectionSamplingFailed(usize),
 }
 
 /// Signing configuration knobs.
@@ -32,6 +37,8 @@ pub struct SignConfig {
     pub sigma: f64,
     /// Maximum number of rejection-sampling attempts.
     pub max_attempts: usize,
+    /// Toy rejection bound factor (bound = `degree * factor`).
+    pub l2_bound_factor: i64,
 }
 
 impl Default for SignConfig {
@@ -39,7 +46,18 @@ impl Default for SignConfig {
         Self {
             sigma: 1.55,
             max_attempts: 64,
+            l2_bound_factor: 10_000,
         }
+    }
+}
+
+impl SignConfig {
+    fn attempts(self) -> usize {
+        self.max_attempts.max(1)
+    }
+
+    fn l2_bound(self, degree: usize) -> i64 {
+        (degree as i64) * self.l2_bound_factor
     }
 }
 
@@ -65,13 +83,127 @@ impl Signature {
     }
 }
 
-/// Sign `message` with the given secret key and RNG.
+/// Hash-to-point strategy.
+pub trait HashToPoint {
+    fn hash_to_point(
+        &self,
+        params: Parameters,
+        nonce: &[u8; NONCE_LEN],
+        message: &[u8],
+    ) -> Vec<u16>;
+}
+
+/// Default, dependency-free hash-to-point scaffolding (non-cryptographic).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct XorHashToPoint {
+    domain: u64,
+}
+
+impl Default for XorHashToPoint {
+    fn default() -> Self {
+        Self {
+            domain: DEFAULT_HASH_DOMAIN,
+        }
+    }
+}
+
+impl HashToPoint for XorHashToPoint {
+    fn hash_to_point(
+        &self,
+        params: Parameters,
+        nonce: &[u8; NONCE_LEN],
+        message: &[u8],
+    ) -> Vec<u16> {
+        let seed = mix_seed64(self.domain, nonce, message);
+        let mut x = seed;
+        let mut out = Vec::with_capacity(params.degree);
+        while out.len() < params.degree {
+            x ^= x >> 12;
+            x ^= x << 25;
+            x ^= x >> 27;
+            x = x.wrapping_mul(0x2545F4914F6CDD1D);
+            let v = (x % (FALCON_Q as u64)) as u16;
+            out.push(v);
+        }
+        out
+    }
+}
+
+/// Stateful signer, holding strategies for hashing and sampling.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Signer<H = XorHashToPoint> {
+    config: SignConfig,
+    hasher: H,
+}
+
+impl Default for Signer {
+    fn default() -> Self {
+        Self {
+            config: SignConfig::default(),
+            hasher: XorHashToPoint::default(),
+        }
+    }
+}
+
+impl<H> Signer<H> {
+    #[must_use]
+    pub fn with_config(mut self, config: SignConfig) -> Self {
+        self.config = config;
+        self
+    }
+
+    #[must_use]
+    pub fn with_hasher<NH: HashToPoint>(self, hasher: NH) -> Signer<NH> {
+        Signer {
+            config: self.config,
+            hasher,
+        }
+    }
+}
+
+impl<H: HashToPoint> Signer<H> {
+    /// Sign `message` with the given secret key and RNG.
+    pub fn sign_with_rng<R: RandomSource>(
+        &self,
+        secret: &SecretKey,
+        message: &[u8],
+        rng: &mut R,
+    ) -> Result<Signature, SignError> {
+        let params = secret.params();
+        if !params.is_supported() {
+            return Err(SignError::UnsupportedLogN(params.log_degree));
+        }
+
+        let nonce = random_nonce(rng);
+        let c = self.hasher.hash_to_point(params, &nonce, message);
+
+        // Target vector (t0, t1) for sampling in the (2n)-dimensional lattice.
+        // In Falcon: t0 is the hash point, t1 is zero.
+        //
+        // NOTE: With real Falcon keys, the sampler uses the secret basis to
+        // obtain a *short* lattice solution for a target modulo `q`. Since
+        // `SecretKey` is still a placeholder in this crate, we scale the target
+        // into a small centered interval to keep this scaffolding sampler
+        // well-behaved.
+        let t0: Vec<f64> = c.iter().map(|&x| point_to_target(x)).collect();
+        let t1 = vec![0.0f64; params.degree];
+
+        let gram = toy_gram_matrix(secret);
+        let ldl = ffldl(&gram);
+
+        // Sample and return only the `s2` part (Falcon signatures are encoded
+        // as (nonce, s2); verification recomputes `s1` from public data).
+        let (_s1, s2) = sample_short_vector(&ldl, &t0, &t1, rng, self.config)?;
+        Ok(Signature { nonce, s2, params })
+    }
+}
+
 pub fn sign_with_rng<R: RandomSource>(
     secret: &SecretKey,
     message: &[u8],
     rng: &mut R,
 ) -> Result<Signature, SignError> {
-    sign_with_rng_and_config(secret, message, rng, SignConfig::default())
+    Signer::default().sign_with_rng(secret, message, rng)
 }
 
 pub fn sign_with_rng_and_config<R: RandomSource>(
@@ -80,26 +212,9 @@ pub fn sign_with_rng_and_config<R: RandomSource>(
     rng: &mut R,
     config: SignConfig,
 ) -> Result<Signature, SignError> {
-    let params = secret.params();
-    if !params.is_supported() {
-        return Err(SignError::UnsupportedLogN(params.log_degree));
-    }
-
-    let nonce = random_nonce(rng);
-    let c = hash_to_point(params, &nonce, message);
-
-    // Target vector (t0, t1) for sampling in the (2n)-dimensional lattice.
-    // In Falcon: t0 is the hash point, t1 is zero.
-    let t0: Vec<f64> = c.iter().map(|&x| x as f64).collect();
-    let t1 = vec![0.0f64; params.degree];
-
-    let gram = toy_gram_matrix(secret);
-    let ldl = ffldl(&gram);
-
-    // Sample and return only the `s2` part (Falcon signatures are encoded
-    // as (nonce, s2); verification recomputes `s1` from public data).
-    let (_s1, s2) = sample_short_vector(&ldl, &t0, &t1, rng, config);
-    Ok(Signature { nonce, s2, params })
+    Signer::default()
+        .with_config(config)
+        .sign_with_rng(secret, message, rng)
 }
 
 fn random_nonce<R: RandomSource>(rng: &mut R) -> [u8; NONCE_LEN] {
@@ -124,18 +239,7 @@ pub fn hash_to_point(
     nonce: &[u8; NONCE_LEN],
     message: &[u8],
 ) -> Vec<u16> {
-    let seed = mix_seed64(0xF4_6A_C9_12_3B_77_E1_19, nonce, message);
-    let mut x = seed;
-    let mut out = Vec::with_capacity(params.degree);
-    while out.len() < params.degree {
-        x ^= x >> 12;
-        x ^= x << 25;
-        x ^= x >> 27;
-        x = x.wrapping_mul(0x2545F4914F6CDD1D);
-        let v = (x % (FALCON_Q as u64)) as u16;
-        out.push(v);
-    }
-    out
+    XorHashToPoint::default().hash_to_point(params, nonce, message)
 }
 
 fn mix_seed64(domain: u64, nonce: &[u8; NONCE_LEN], message: &[u8]) -> u64 {
@@ -146,6 +250,16 @@ fn mix_seed64(domain: u64, nonce: &[u8; NONCE_LEN], message: &[u8]) -> u64 {
         acc = acc.rotate_left(5).wrapping_add(0x9E3779B97F4A7C15);
     }
     acc
+}
+
+fn point_to_target(x: u16) -> f64 {
+    let q = FALCON_Q as i32;
+    let half_q = q / 2;
+    let mut v = x as i32;
+    if v > half_q {
+        v -= q;
+    }
+    v as f64 / (FALCON_Q as f64)
 }
 
 #[derive(Clone, Debug)]
@@ -173,9 +287,9 @@ fn toy_gram_matrix(secret: &SecretKey) -> GramMatrix {
     for (&fi, &gi) in f.iter().zip(g.iter()) {
         let fi = fi as f64;
         let gi = gi as f64;
-        let a = fi * fi + gi * gi + 1e-9;
+        let a = fi * fi + gi * gi + MIN_GRAM_BIAS;
         let b = fi * gi;
-        let c = fi * fi + 1e-9;
+        let c = fi * fi + MIN_GRAM_BIAS;
         g00.push(a);
         g01.push(b);
         g11.push(c);
@@ -202,9 +316,9 @@ fn ffldl(gram: &GramMatrix) -> FfLdl {
     let mut l10 = Vec::with_capacity(n);
 
     for ((&a0, &b), &c) in gram.g00.iter().zip(&gram.g01).zip(&gram.g11) {
-        let a = a0.max(1e-12);
+        let a = a0.max(MIN_VARIANCE);
         let li = b / a;
-        let di = (c - li * b).max(1e-12);
+        let di = (c - li * b).max(MIN_VARIANCE);
         d00.push(a);
         l10.push(li);
         d11.push(di);
@@ -219,7 +333,7 @@ fn sample_short_vector<R: RandomSource>(
     t1: &[f64],
     rng: &mut R,
     config: SignConfig,
-) -> (Vec<i16>, Vec<i16>) {
+) -> Result<(Vec<i16>, Vec<i16>), SignError> {
     debug_assert_eq!(ldl.d00.len(), t0.len());
     debug_assert_eq!(ldl.d11.len(), t1.len());
     debug_assert_eq!(ldl.l10.len(), t0.len());
@@ -228,7 +342,7 @@ fn sample_short_vector<R: RandomSource>(
     let mut s1 = vec![0i16; n];
     let mut s2 = vec![0i16; n];
 
-    for _ in 0..config.max_attempts.max(1) {
+    for _ in 0..config.attempts() {
         for i in 0..n {
             let sigma1 = config.sigma * ldl.d11[i].sqrt();
             let z1 = discrete_gaussian(rng, sigma1, t1[i]);
@@ -248,13 +362,13 @@ fn sample_short_vector<R: RandomSource>(
             .zip(&s2)
             .map(|(&a, &b)| (a as i64) * (a as i64) + (b as i64) * (b as i64))
             .sum();
-        let bound = (n as i64) * 10_000;
+        let bound = config.l2_bound(n);
         if l2 <= bound {
-            return (s1, s2);
+            return Ok((s1, s2));
         }
     }
 
-    (s1, s2)
+    Err(SignError::RejectionSamplingFailed(config.attempts()))
 }
 
 #[cfg(test)]
