@@ -12,6 +12,7 @@ Rust rewrite of the math layer from [tprest/falcon.py](https://github.com/tprest
 - `sampling`: deterministic test-friendly Box–Muller and Bernoulli utilities (not constant-time).
 - `core::keygen`: key generation scaffolding (placeholder public key derivation).
 - `core::sign`: signature generation scaffolding (hash-to-point + ffLDL + sampler pipeline; not production-ready).
+- `core::verify`: signature verification scaffolding (recompute hash-to-point, derive `s1 = c - s2*h (mod q)`, and check a toy norm bound; not production-ready).
 
 Higher-level Falcon keygen/sign/verify routines can build on these blocks while keeping close to the Python reference’s naming and flow.
 
