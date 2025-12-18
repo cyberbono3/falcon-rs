@@ -107,6 +107,12 @@ impl Default for XorHashToPoint {
     }
 }
 
+impl XorHashToPoint {
+    pub const fn new(domain: u64) -> Self {
+        Self { domain }
+    }
+}
+
 impl HashToPoint for XorHashToPoint {
     fn hash_to_point(
         &self,
@@ -178,7 +184,10 @@ impl<H: HashToPoint> Signer<H> {
         let c = self.hasher.hash_to_point(params, &nonce, message);
 
         // Target vector (t0, t1) for sampling in the (2n)-dimensional lattice.
-        // In Falcon: t0 is the hash point, t1 is zero.
+        // In Falcon: t = (c, 0), but the *output* still depends on `c` through
+        // the secret basis. Since `SecretKey` is still a placeholder in this
+        // crate, we inject the hash point into both components to keep this
+        // scaffolding signature dependent on the message.
         //
         // NOTE: With real Falcon keys, the sampler uses the secret basis to
         // obtain a *short* lattice solution for a target modulo `q`. Since
@@ -186,7 +195,7 @@ impl<H: HashToPoint> Signer<H> {
         // into a small centered interval to keep this scaffolding sampler
         // well-behaved.
         let t0: Vec<f64> = c.iter().map(|&x| point_to_target(x)).collect();
-        let t1 = vec![0.0f64; params.degree];
+        let t1: Vec<f64> = t0.iter().map(|&x| -x).collect();
 
         let gram = toy_gram_matrix(secret);
         let ldl = ffldl(&gram);
@@ -392,6 +401,92 @@ mod tests {
     }
 
     #[test]
+    fn sign_differs_for_different_messages_with_same_rng_seed() {
+        let kp = Keypair::from_seed(9, b"sign-key").unwrap();
+        let msg1 = b"hello";
+        let msg2 = b"world";
+
+        let mut rng1 = XorShift64::new(777);
+        let mut rng2 = XorShift64::new(777);
+        let sig1 = sign_with_rng(kp.secret(), msg1, &mut rng1).unwrap();
+        let sig2 = sign_with_rng(kp.secret(), msg2, &mut rng2).unwrap();
+        assert_ne!(sig1, sig2);
+        // Nonce is generated solely from RNG, so with identical RNG streams it
+        // should match; the signature difference should come from `s2`.
+        assert_eq!(sig1.nonce(), sig2.nonce());
+        assert_ne!(sig1.s2(), sig2.s2());
+    }
+
+    #[test]
+    fn signer_domain_affects_signature() {
+        let kp = Keypair::from_seed(9, b"sign-key").unwrap();
+        let msg = b"hello";
+
+        let signer_a = Signer::default().with_hasher(XorHashToPoint::new(1));
+        let signer_b = Signer::default().with_hasher(XorHashToPoint::new(2));
+
+        let mut rng1 = XorShift64::new(555);
+        let mut rng2 = XorShift64::new(555);
+        let sig_a =
+            signer_a.sign_with_rng(kp.secret(), msg, &mut rng1).unwrap();
+        let sig_b =
+            signer_b.sign_with_rng(kp.secret(), msg, &mut rng2).unwrap();
+        assert_ne!(sig_a.s2(), sig_b.s2());
+        assert_eq!(sig_a.nonce(), sig_b.nonce());
+    }
+
+    #[test]
+    fn signing_twice_advances_nonce() {
+        let kp = Keypair::from_seed(9, b"sign-key").unwrap();
+        let msg = b"hello";
+
+        let mut rng = XorShift64::new(999);
+        let sig1 = sign_with_rng(kp.secret(), msg, &mut rng).unwrap();
+        let sig2 = sign_with_rng(kp.secret(), msg, &mut rng).unwrap();
+        assert_ne!(sig1.nonce(), sig2.nonce());
+    }
+
+    #[test]
+    fn rejects_unsupported_secret_key_params() {
+        let params = Parameters {
+            name: "Falcon-256 (unsupported)",
+            degree: 256,
+            log_degree: 8,
+            modulus: FALCON_Q,
+            max_sig_len: 0,
+            pk_len: 0,
+            sk_len: 0,
+        };
+        let sk = SecretKey::new(
+            vec![0; params.degree],
+            vec![0; params.degree],
+            params,
+        );
+        let mut rng = XorShift64::new(1);
+        assert!(matches!(
+            sign_with_rng(&sk, b"msg", &mut rng),
+            Err(SignError::UnsupportedLogN(8))
+        ));
+    }
+
+    #[test]
+    fn rejection_failure_is_reported() {
+        let kp = Keypair::from_seed(9, b"sign-key").unwrap();
+        let msg = b"hello";
+
+        let config = SignConfig {
+            max_attempts: 3,
+            l2_bound_factor: -1,
+            ..SignConfig::default()
+        };
+        let mut rng = XorShift64::new(123);
+        assert!(matches!(
+            sign_with_rng_and_config(kp.secret(), msg, &mut rng, config),
+            Err(SignError::RejectionSamplingFailed(3))
+        ));
+    }
+
+    #[test]
     fn hash_to_point_in_range() {
         let kp = Keypair::from_seed(9, b"hash-key").unwrap();
         let nonce = [0u8; NONCE_LEN];
@@ -399,5 +494,15 @@ mod tests {
         let c = hash_to_point(params, &nonce, b"msg");
         assert_eq!(c.len(), kp.secret().degree());
         assert!(c.iter().all(|&x| x < FALCON_Q as u16));
+    }
+
+    #[test]
+    fn hash_to_point_is_deterministic_for_same_inputs() {
+        let kp = Keypair::from_seed(9, b"hash-key").unwrap();
+        let params = kp.secret().params();
+        let nonce = [7u8; NONCE_LEN];
+        let c1 = hash_to_point(params, &nonce, b"msg");
+        let c2 = hash_to_point(params, &nonce, b"msg");
+        assert_eq!(c1, c2);
     }
 }
