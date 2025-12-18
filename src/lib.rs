@@ -5,4 +5,5 @@
 //! signing and verification routines can be built on top of these math
 //! building blocks.
 
+pub mod core;
 pub mod math;
