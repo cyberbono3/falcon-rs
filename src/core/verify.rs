@@ -124,7 +124,15 @@ fn negacyclic_product_modq(
     let mut b = rhs.clone();
     b.resize(n);
 
-    let prod = a.ntt_product(&b);
+    let prod = if n <= 512 {
+        // For `n=512`, we can use a size-1024 NTT to get the full convolution.
+        a.ntt_product(&b)
+    } else {
+        // For `n=1024`, a full convolution would require a size-2048 NTT which
+        // is outside Falcon's bounds; use the (slow) schoolbook multiplication
+        // for this scaffolding verifier.
+        a.schoolbook_product(&b)
+    };
     let mut out = vec![ModQ::zero(); n];
     for (k, &ck) in prod.coeffs().iter().enumerate() {
         if k < n {
