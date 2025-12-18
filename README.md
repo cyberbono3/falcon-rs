@@ -10,6 +10,8 @@ Rust rewrite of the math layer from [tprest/falcon.py](https://github.com/tprest
 - `fft`: dependency-free complex FFT mirroring the reference floating-point routines.
 - `mat`: tiny 2×2 matrix type with LDL decomposition for Gram matrix manipulations.
 - `sampling`: deterministic test-friendly Box–Muller and Bernoulli utilities (not constant-time).
+- `core::keygen`: key generation scaffolding (placeholder public key derivation).
+- `core::sign`: signature generation scaffolding (hash-to-point + ffLDL + sampler pipeline; not production-ready).
 
 Higher-level Falcon keygen/sign/verify routines can build on these blocks while keeping close to the Python reference’s naming and flow.
 
